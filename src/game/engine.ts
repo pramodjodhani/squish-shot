@@ -93,8 +93,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
   const ctx = canvas.getContext('2d')!;
   let scale = 1;
 
-  const striker = makeBall(W / 2, H - 110, 46, true);
-  const target = makeBall(W / 2, H / 2, 48, false);
+  const striker = makeBall(W / 2, H - 110, 58, true);
+  const target = makeBall(W / 2, H / 2, 60, false);
   const balls = [striker, target];
   const wallFlash: Record<WallId, number> = { l: 0, r: 0, t: 0, b: 0 };
   const wallHue: Record<WallId, number> = { l: 0, r: 0, t: 0, b: 0 };
@@ -159,9 +159,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
     let y = 0;
     let tries = 0;
     do {
-      x = 80 + Math.random() * (W - 160);
+      x = 90 + Math.random() * (W - 180);
       y = H * 0.38 + Math.random() * H * 0.4;
-    } while (Math.hypot(x - striker.x, y - striker.y) < 190 && ++tries < 30);
+    } while (Math.hypot(x - striker.x, y - striker.y) < 220 && ++tries < 30);
     Object.assign(target, { x, y, vx: 0, vy: 0, pop: 0, hue: Math.random() * 360 });
     shot.wallBounces = 0;
   }
