@@ -89,8 +89,9 @@ export default function App() {
                 <>
                   <h1>Squish Shot</h1>
                   <p>
-                    Drag anywhere and release to fire the black ball. Knock the colour ball through
-                    the opening at the top. You have {ROUND_TIME} seconds.
+                    Drag the black ball around and knock the colour ball through the opening at the
+                    top. Every wall it
+                    touches on the way doubles the goal: 1, 2, 4, 8, 16. You have {ROUND_TIME} seconds.
                   </p>
                 </>
               )}

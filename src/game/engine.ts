@@ -12,8 +12,9 @@ const GX1 = (W - GAP) / 2;
 const GX2 = (W + GAP) / 2; // opening in the top wall
 const K_WALL = 5200; // wall spring stiffness (soft contact)
 const FRICTION = 0.85; // velocity decay per second (exponent)
-const MAX_SHOT = 1500;
-const SHOT_POWER = 7;
+const MAX_SPEED = 1500;
+const DRAG_GAIN = 28; // how tightly the black ball follows the pointer
+const DRAG_MAX = 2400; // top speed while dragged
 const STEP = 1 / 240;
 const BOUNCE_MIN_HIT = 120; // slower taps on the floor don't trigger the trampoline
 const BOUNCE_LAUNCH = 720; // minimum speed the colour ball leaves the floor with
@@ -100,12 +101,14 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
   let particles: Particle[] = [];
   let popups: Popup[] = [];
   let playing = false;
-  let started = false; // the clock starts on the first shot
+  let started = false; // the clock starts on the first touch
   let score = 0;
   let timeLeft = ROUND_TIME;
   let shownTime = '';
   let shot: ShotInfo = { wallBounces: 0, streak: 0, sinceLast: 0 };
-  let aim: { sx: number; sy: number; x: number; y: number } | null = null;
+  // While the pointer is down the black ball chases (tx, ty); (ox, oy) is the
+  // ball's offset from the pointer at grab time, so it never jumps under the finger.
+  let drag: { ox: number; oy: number; tx: number; ty: number } | null = null;
   let shake = 0;
 
   // ---------- sizing ----------
@@ -147,6 +150,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
 
   // ---------- events ----------
   function resetStriker() {
+    drag = null;
     Object.assign(striker, { x: W / 2, y: H - 110, vx: 0, vy: 0, pop: 0 });
   }
 
@@ -166,7 +170,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
     const v = Math.min(speed / 1200, 1);
     wallFlash[id] = Math.max(wallFlash[id], 0.35 + v * 0.65);
     wallHue[id] = b.hue;
-    if (!b.isStriker) shot.wallBounces++;
+    if (!b.isStriker) {
+      shot.wallBounces++;
+      // show what a goal is worth right now
+      if (playing) popups.push({ x: b.x, y: Math.max(b.y - b.r - 50, T + 10), text: `×${goalPoints(shot)}`, life: 1 });
+    }
     blip(b.isStriker ? 110 : 170 + Math.random() * 40, 0.12, 0.05 + v * 0.25, 'sine', -60);
   }
 
@@ -202,7 +210,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
       if (id === 'b' && b.touch.b && !b.isStriker && b.bounce > BOUNCE_MIN_HIT) {
         // Trampoline floor: a colour ball knocked into the bottom wall squashes,
         // then springs back fast enough to reach the top, and mostly straight up.
-        b.vy = -Math.min(Math.max(-b.vy, b.bounce, BOUNCE_LAUNCH), MAX_SHOT);
+        b.vy = -Math.min(Math.max(-b.vy, b.bounce, BOUNCE_LAUNCH), MAX_SPEED);
         b.vx *= 0.5;
         blip(200, 0.16, 0.2, 'sine', 260);
       }
@@ -306,6 +314,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
   }
 
   function step(h: number) {
+    if (drag && playing) {
+      let vx = (drag.tx - striker.x) * DRAG_GAIN;
+      let vy = (drag.ty - striker.y) * DRAG_GAIN;
+      const sp = Math.hypot(vx, vy);
+      if (sp > DRAG_MAX) {
+        vx *= DRAG_MAX / sp;
+        vy *= DRAG_MAX / sp;
+      }
+      striker.vx = vx;
+      striker.vy = vy;
+    }
     balls.forEach((b) => stepBall(b, h));
     collide(striker, target);
     if (target.y < T - target.r * 0.3) {
@@ -383,34 +402,6 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
       ctx.stroke();
     }
 
-    // aim guide
-    if (aim && playing) {
-      const ax = aim.sx - aim.x;
-      const ay = aim.sy - aim.y;
-      const len = Math.hypot(ax, ay);
-      if (len > 8) {
-        const p = Math.min(len * SHOT_POWER, MAX_SHOT) / MAX_SHOT;
-        const ux = ax / len;
-        const uy = ay / len;
-        ctx.fillStyle = INK;
-        for (let i = 1; i <= 9; i++) {
-          const d = striker.r + 6 + i * (8 + p * 14);
-          ctx.globalAlpha = (1 - i / 10) * 0.7;
-          ctx.beginPath();
-          ctx.arc(striker.x + ux * d, striker.y + uy * d, 3.6 - i * 0.22, 0, 7);
-          ctx.fill();
-        }
-        ctx.globalAlpha = 0.25;
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = INK;
-        ctx.beginPath();
-        ctx.moveTo(aim.sx, aim.sy);
-        ctx.lineTo(aim.x, aim.y);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-    }
-
     balls.forEach(drawBall);
 
     for (const p of particles) {
@@ -448,7 +439,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
     if (playing && !started) {
       ctx.font = `600 15px ${FONT}`;
       ctx.fillStyle = 'rgba(23,23,28,.5)';
-      ctx.fillText('Drag anywhere, release to strike', W / 2, H - 40);
+      ctx.fillText('Drag to move the black ball', W / 2, H - 40);
     }
     ctx.restore();
   }
@@ -481,7 +472,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
       reportTime();
       if (timeLeft === 0) {
         playing = false;
-        aim = null;
+        drag = null;
         blip(392, 0.3, 0.2, 'triangle', -150);
         cb.onEnd(score);
       }
@@ -507,39 +498,37 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
     const r = canvas.getBoundingClientRect();
     return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
   }
+  function setDragTarget(e: PointerEvent) {
+    if (!drag) return;
+    const p = pt(e);
+    // the target may sit slightly inside a wall so the ball can be squashed against it,
+    // but it can't be dragged out through the opening
+    const m = striker.r * 0.55;
+    drag.tx = Math.max(L + m, Math.min(R - m, p.x + drag.ox));
+    drag.ty = Math.max(T + striker.r, Math.min(B - m, p.y + drag.oy));
+  }
   function onDown(e: PointerEvent) {
     if (!playing) return;
     initAudio();
     const p = pt(e);
-    aim = { sx: p.x, sy: p.y, x: p.x, y: p.y };
+    drag = { ox: striker.x - p.x, oy: striker.y - p.y, tx: striker.x, ty: striker.y };
+    started = true;
     canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = 'grabbing';
   }
   function onMove(e: PointerEvent) {
-    if (aim) Object.assign(aim, pt(e));
+    setDragTarget(e);
   }
   function onUp() {
-    if (!aim) return;
-    const ax = aim.sx - aim.x;
-    const ay = aim.sy - aim.y;
-    const len = Math.hypot(ax, ay);
-    aim = null;
-    if (!playing || len < 8) return;
-    const sp = Math.min(len * SHOT_POWER, MAX_SHOT);
-    striker.vx = (ax / len) * sp;
-    striker.vy = (ay / len) * sp;
-    striker.ha = Math.atan2(ay, ax);
-    striker.vh -= 6 + sp / 200; // stretch on launch
-    started = true;
-    blip(140, 0.1, 0.12, 'sine', 120);
-  }
-  function onCancel() {
-    aim = null;
+    // the ball keeps whatever speed it had, so a flick still throws it
+    drag = null;
+    canvas.style.cursor = 'grab';
   }
 
   canvas.addEventListener('pointerdown', onDown);
   canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerup', onUp);
-  canvas.addEventListener('pointercancel', onCancel);
+  canvas.addEventListener('pointercancel', onUp);
   window.addEventListener('resize', resize);
   resize();
   raf = requestAnimationFrame(frame);
@@ -550,7 +539,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
       score = 0;
       timeLeft = ROUND_TIME;
       started = false;
-      aim = null;
+      drag = null;
       shot = { wallBounces: 0, streak: 0, sinceLast: 0 };
       particles = [];
       popups = [];
@@ -565,7 +554,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks): Game {
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
-      canvas.removeEventListener('pointercancel', onCancel);
+      canvas.removeEventListener('pointercancel', onUp);
       window.removeEventListener('resize', resize);
       if (ac) void ac.close();
     },

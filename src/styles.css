@@ -83,7 +83,7 @@ canvas {
   display: block;
   border-radius: 14px;
   background: var(--field);
-  cursor: crosshair;
+  cursor: grab;
 }
 
 .overlay {
